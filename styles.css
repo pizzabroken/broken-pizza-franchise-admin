@@ -125,8 +125,45 @@ button:disabled {
 
 .truck h2 {
   margin: 0 0 8px;
-  font-size: 1.05rem;
+  font-size: 1.15rem;
+  word-break: break-word;
+}
+
+.truck code {
+  font-size: 0.78rem;
+  color: var(--muted);
   word-break: break-all;
+}
+
+.company-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 6px;
+}
+
+.info-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.info-row span {
+  color: var(--muted);
+}
+
+.info-row strong {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+@media (max-width: 520px) {
+  .info-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
 }
 
 .meta {
