@@ -145,15 +145,15 @@
     if (alerts.inv.alertMissing) {
       const miss = (alerts.inv.missing || []).join(', ') || 'sections manquantes';
       bits.push(
-        `<div class="alert-banner bad">Inventaire ${String(alerts.inv.month).padStart(2, '0')}/${alerts.inv.year} non rentré au 15 — manque : ${escapeHtml(miss)}.</div>`,
+        `<div class="alert-banner bad">Inventaire ${String(alerts.inv.month).padStart(2, '0')}/${alerts.inv.year} non rentré (échéance le 15) — manque : ${escapeHtml(miss)}.</div>`,
       );
     } else if (alerts.inv.dueDayReached) {
       bits.push(
-        `<div class="alert-banner ok">Inventaire ${String(alerts.inv.month).padStart(2, '0')}/${alerts.inv.year} OK (sections requises enregistrées).</div>`,
+        `<div class="alert-banner ok">Inventaire ${String(alerts.inv.month).padStart(2, '0')}/${alerts.inv.year} OK.</div>`,
       );
     } else {
       bits.push(
-        `<div class="alert-banner mute">Inventaire ${String(alerts.inv.month).padStart(2, '0')}/${alerts.inv.year} : échéance le 15 du mois.</div>`,
+        `<div class="alert-banner mute">Inventaire ${String(alerts.inv.month).padStart(2, '0')}/${alerts.inv.year} à contrôler au 15.</div>`,
       );
     }
     return bits.join('');

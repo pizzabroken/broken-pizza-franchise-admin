@@ -6,11 +6,21 @@
   const SYNC_ALERT_MS = 72 * 3600 * 1000;
   const INV_DUE_DAY = 15;
 
+  /** Mois contrôlé = mois précédent (échéance au 15 du mois courant). */
+  function inventoryTargetPeriod(now = new Date()) {
+    const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return { year: d.getFullYear(), month: d.getMonth() + 1 };
+  }
+
   function inventoryStatusFromDb(db, year, month) {
+    const target =
+      year != null && month != null
+        ? { year, month }
+        : inventoryTargetPeriod();
     const rows = queryAll(
       db,
       `SELECT section_inventaire, est_enregistre FROM monthly_inventories WHERE annee = ? AND mois = ?`,
-      [year, month],
+      [target.year, target.month],
     );
     const recorded = [
       ...new Set(
@@ -23,8 +33,8 @@
     const missing = REQUIRED_INV.filter((s) => !recorded.includes(s));
     const dueDayReached = new Date().getDate() >= INV_DUE_DAY;
     return {
-      year,
-      month,
+      year: target.year,
+      month: target.month,
       required: REQUIRED_INV,
       recorded,
       missing,
@@ -34,9 +44,9 @@
   }
 
   function inventoryStatusFromStats(stats) {
-    const now = new Date();
-    const year = Number(stats?.invAlertYear) || now.getFullYear();
-    const month = Number(stats?.invAlertMonth) || now.getMonth() + 1;
+    const fallback = inventoryTargetPeriod();
+    const year = Number(stats?.invAlertYear) || fallback.year;
+    const month = Number(stats?.invAlertMonth) || fallback.month;
     if (stats && typeof stats.invAlertMissing === 'boolean') {
       return {
         year,
@@ -48,14 +58,15 @@
         alertMissing: !!stats.invAlertMissing,
       };
     }
+    const dueDayReached = new Date().getDate() >= INV_DUE_DAY;
     return {
       year,
       month,
       required: REQUIRED_INV,
       recorded: [],
       missing: REQUIRED_INV,
-      dueDayReached: now.getDate() >= INV_DUE_DAY,
-      alertMissing: now.getDate() >= INV_DUE_DAY,
+      dueDayReached,
+      alertMissing: dueDayReached,
     };
   }
 
@@ -399,12 +410,7 @@
     }
 
     inventoryStatus(year, month) {
-      const now = new Date();
-      return inventoryStatusFromDb(
-        this.db,
-        year || now.getFullYear(),
-        month || now.getMonth() + 1,
-      );
+      return inventoryStatusFromDb(this.db, year, month);
     }
   }
 
