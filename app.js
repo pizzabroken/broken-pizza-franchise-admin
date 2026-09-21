@@ -7,6 +7,7 @@
 
   const LS_KEY = 'bpg_truck_names_v1';
   const client = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+  const TruckDb = window.BPG_TruckDb;
 
   const loginView = document.getElementById('loginView');
   const listView = document.getElementById('listView');
@@ -32,6 +33,9 @@
   let trucks = [];
   let selectedId = null;
 
+  /** @type {{tab:string, financeKind:string, financeMonth:string, financeQ:string, financeOffset:number, invId:number|null, hygSub:string, releveFrigo:string, releveMonth:string, releveOffset:number}} */
+  let detailsState = defaultDetailsState();
+
   const COMPANY_LABELS = {
     raison_sociale: 'Raison sociale',
     nom_commercial: 'Nom commercial',
@@ -54,6 +58,21 @@
     frigo: 'Frigo',
     inventaire: 'Inventaire',
   };
+
+  function defaultDetailsState() {
+    return {
+      tab: 'finance',
+      financeKind: 'recette',
+      financeMonth: '',
+      financeQ: '',
+      financeOffset: 0,
+      invId: null,
+      hygSub: 'releves',
+      releveFrigo: '',
+      releveMonth: '',
+      releveOffset: 0,
+    };
+  }
 
   function loadLocalNames() {
     try {
@@ -86,24 +105,11 @@
   }
 
   function fmtMs(ms) {
-    if (!ms) return '—';
-    const n = Number(ms);
-    if (!Number.isFinite(n) || n <= 0 || n > 1e14) return '—';
-    try {
-      return new Date(n).toLocaleString('fr-FR');
-    } catch (_) {
-      return String(ms);
-    }
+    return TruckDb.fmtMs(ms);
   }
 
   function fmtMoney(v) {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return '—';
-    return n.toLocaleString('fr-FR', {
-      style: 'currency',
-      currency: 'EUR',
-      minimumFractionDigits: 2,
-    });
+    return TruckDb.fmtMoney(v);
   }
 
   function escapeHtml(s) {
@@ -175,7 +181,7 @@
     }
     for (const t of rows) {
       const name = displayNameFor(t.userId, t.manifest);
-      const ville = (t.manifest?.companyProfile?.ville || '—');
+      const ville = t.manifest?.companyProfile?.ville || '—';
       const stats = fs(t.manifest);
       const tr = document.createElement('tr');
       tr.innerHTML = `
@@ -245,51 +251,462 @@
               <div class="value">${fmtMoney(stats.depSumYear)}</div>
             </div>
           </div>
-          <p class="sub" style="margin-top:12px;">
-            ${(stats.recSumMonth == null && stats.recSumYear == null)
-              ? 'Chiffres mois/année absents du manifeste — relancer une sync depuis l’app camion pour les remplir.'
-              : 'Montants TTC issus de la dernière sync cloud.'}
-          </p>
         </div>
       </div>
     `;
     showOnly(bilanView);
   }
 
-  function openDetails() {
+  async function openDetails() {
+    if (!selectedId) return;
+    detailsState = defaultDetailsState();
+    showOnly(detailsView);
+    detailsContent.innerHTML = `
+      <div class="card">
+        <p class="sub" id="detailsLoadMsg">Préparation…</p>
+        <div class="progress-bar"><div id="detailsLoadBar"></div></div>
+      </div>`;
+    const msg = document.getElementById('detailsLoadMsg');
+    try {
+      await TruckDb.loadTruckDb(client, cfg.syncBucket, selectedId, (m) => {
+        if (msg) msg.textContent = m;
+      });
+      renderDetails();
+    } catch (e) {
+      detailsContent.innerHTML = `
+        <div class="card">
+          <p class="err">${escapeHtml((e && e.message) || String(e))}</p>
+          <p class="sub">Le ZIP cloud est peut-être absent pour ce camion. Relancer une sync depuis l’app.</p>
+        </div>`;
+    }
+  }
+
+  /** @type {any} */
+  let activeTruckDb = null;
+
+  function renderDetails() {
     const t = findTruck(selectedId);
-    if (!t) return;
-    const name = displayNameFor(selectedId, t.manifest);
-    const profile = t.manifest?.companyProfile || {};
-    const stats = fs(t.manifest);
+    renderDetailsWithDb(t);
+  }
+
+  function refreshDetailsPanel() {
+    const panel = document.getElementById('detailsPanel');
+    if (!panel || !activeTruckDb) {
+      renderDetails();
+      return;
+    }
+    const t = findTruck(selectedId);
+    if (detailsState.tab === 'synthese') panel.innerHTML = renderSynthese(t, activeTruckDb.counts());
+    else if (detailsState.tab === 'finance') renderFinancePanel(panel, activeTruckDb);
+    else if (detailsState.tab === 'inventaires') renderInventairesPanel(panel, activeTruckDb);
+    else renderHygienePanel(panel, activeTruckDb);
+  }
+
+  async function renderDetailsWithDb(t) {
+    const truckDb = await TruckDb.loadTruckDb(client, cfg.syncBucket, selectedId);
+    activeTruckDb = truckDb;
+    const name = displayNameFor(selectedId, t?.manifest);
+    const counts = truckDb.counts();
+    const tabs = [
+      ['synthese', 'Synthèse'],
+      ['finance', `Finance (${counts.recettes + counts.depenses})`],
+      ['inventaires', `Inventaires (${counts.inventaires})`],
+      ['hygiene', `Hygiène (${counts.releves + counts.etiquettes})`],
+    ];
+
+    detailsContent.innerHTML = `
+      <div class="card details-head">
+        <div>
+          <h2 style="margin:0 0 4px;">Détails — ${escapeHtml(name)}</h2>
+          <p class="sub" style="margin:0;">Données de la dernière sync cloud (lecture seule)</p>
+        </div>
+        <div class="counts-strip">
+          <span>${counts.recettes} recettes</span>
+          <span>${counts.depenses} dépenses</span>
+          <span>${counts.inventaires} inventaires</span>
+          <span>${counts.releves} relevés</span>
+          <span>${counts.etiquettes} étiquettes</span>
+        </div>
+      </div>
+      <div class="tabs" id="detailsTabs">
+        ${tabs
+          .map(
+            ([id, label]) =>
+              `<button type="button" class="tab-btn${detailsState.tab === id ? ' active' : ''}" data-tab="${id}">${escapeHtml(label)}</button>`,
+          )
+          .join('')}
+      </div>
+      <div id="detailsPanel"></div>
+    `;
+
+    detailsContent.querySelectorAll('.tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        detailsState.tab = btn.getAttribute('data-tab');
+        detailsState.financeOffset = 0;
+        detailsState.releveOffset = 0;
+        renderDetailsWithDb(t);
+      });
+    });
+
+    const panel = document.getElementById('detailsPanel');
+    if (detailsState.tab === 'synthese') panel.innerHTML = renderSynthese(t, counts);
+    else if (detailsState.tab === 'finance') renderFinancePanel(panel, truckDb);
+    else if (detailsState.tab === 'inventaires') renderInventairesPanel(panel, truckDb);
+    else renderHygienePanel(panel, truckDb);
+  }
+
+  function renderSynthese(t, counts) {
+    const profile = t?.manifest?.companyProfile || {};
     const rows = [];
     for (const key of COMPANY_ORDER) {
       const val = (profile[key] || '').trim();
       if (!val) continue;
-      rows.push(`<div class="info-row"><span>${escapeHtml(COMPANY_LABELS[key])}</span><strong>${escapeHtml(val)}</strong></div>`);
+      rows.push(
+        `<div class="info-row"><span>${escapeHtml(COMPANY_LABELS[key])}</span><strong>${escapeHtml(val)}</strong></div>`,
+      );
     }
-    detailsContent.innerHTML = `
-      <div class="card" style="margin-bottom:16px;">
-        <h2 style="margin:0 0 6px;">Détails — ${escapeHtml(name)}</h2>
-        <p class="sub" style="margin:0;">Fiche entreprise et volumes</p>
-      </div>
+    return `
       <div class="bilan-grid">
         <div class="card">
           <h3 style="margin:0 0 10px;">Entreprise</h3>
           ${rows.length ? rows.join('') : '<p class="sub">Fiche entreprise vide.</p>'}
         </div>
         <div class="card">
-          <h3 style="margin:0 0 10px;">Volumes</h3>
-          <div class="info-row"><span>Recettes</span><strong>${stats.recCount ?? '—'}</strong></div>
-          <div class="info-row"><span>Dépenses</span><strong>${stats.depCount ?? '—'}</strong></div>
-          <div class="info-row"><span>Notes</span><strong>${stats.postItCount ?? '—'}</strong></div>
-          <div class="info-row"><span>Étiquettes</span><strong>${stats.labelCount ?? '—'}</strong></div>
-          <div class="info-row"><span>Ingrédients</span><strong>${stats.catalogueIngCount ?? '—'}</strong></div>
-          <div class="info-row"><span>Id compte</span><strong><code>${escapeHtml(selectedId)}</code></strong></div>
+          <h3 style="margin:0 0 10px;">Volumes synchronisés</h3>
+          <div class="info-row"><span>Recettes</span><strong>${counts.recettes}</strong></div>
+          <div class="info-row"><span>Dépenses</span><strong>${counts.depenses}</strong></div>
+          <div class="info-row"><span>Inventaires</span><strong>${counts.inventaires} (${counts.lignesInv} lignes)</strong></div>
+          <div class="info-row"><span>Frigos</span><strong>${counts.frigos}</strong></div>
+          <div class="info-row"><span>Relevés</span><strong>${counts.releves}</strong></div>
+          <div class="info-row"><span>Étiquettes</span><strong>${counts.etiquettes}</strong></div>
+          <div class="info-row"><span>Notes</span><strong>${counts.notes}</strong></div>
         </div>
+      </div>`;
+  }
+
+  function renderFinancePanel(panel, truckDb) {
+    const kind = detailsState.financeKind;
+    const data =
+      kind === 'recette'
+        ? truckDb.recettes({
+            month: detailsState.financeMonth,
+            q: detailsState.financeQ,
+            offset: detailsState.financeOffset,
+          })
+        : truckDb.depenses({
+            month: detailsState.financeMonth,
+            q: detailsState.financeQ,
+            offset: detailsState.financeOffset,
+          });
+
+    const monthOpts = [
+      `<option value="">Tous les mois</option>`,
+      ...data.months.map(
+        (m) =>
+          `<option value="${escapeHtml(m)}"${m === detailsState.financeMonth ? ' selected' : ''}>${escapeHtml(m)}</option>`,
+      ),
+    ].join('');
+
+    const typeLabel = kind === 'recette' ? 'Type' : 'Catégorie';
+    const rowsHtml = data.rows
+      .map(
+        (r) => `
+      <tr>
+        <td>${escapeHtml(TruckDb.fmtDay(r.ms))}</td>
+        <td>${escapeHtml(r.type)}</td>
+        <td>${escapeHtml(r.libelle || '—')}</td>
+        <td class="num">${fmtMoney(r.montant)}</td>
+        <td class="meta">${escapeHtml(r.note || '')}</td>
+      </tr>`,
+      )
+      .join('');
+
+    panel.innerHTML = `
+      <div class="card">
+        <div class="toolbar tight">
+          <div class="seg">
+            <button type="button" class="seg-btn${kind === 'recette' ? ' active' : ''}" data-fk="recette">Recettes</button>
+            <button type="button" class="seg-btn${kind === 'depense' ? ' active' : ''}" data-fk="depense">Dépenses</button>
+          </div>
+          <select id="finMonth">${monthOpts}</select>
+          <input id="finQ" type="search" placeholder="Rechercher…" value="${escapeHtml(detailsState.financeQ)}" />
+          <span class="sub">${data.totalCount} ligne(s) · total ${fmtMoney(data.totalAmount)}</span>
+        </div>
+        <div class="table-wrap plain">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>${typeLabel}</th>
+                <th>Libellé</th>
+                <th>Montant</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml || '<tr><td colspan="5" class="meta">Aucune entrée.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+        ${pagerHtml(data.offset, data.limit, data.totalCount, 'fin')}
+      </div>`;
+
+    panel.querySelectorAll('[data-fk]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        detailsState.financeKind = btn.getAttribute('data-fk');
+        detailsState.financeOffset = 0;
+        refreshDetailsPanel();
+      });
+    });
+    panel.querySelector('#finMonth').addEventListener('change', (ev) => {
+      detailsState.financeMonth = ev.target.value;
+      detailsState.financeOffset = 0;
+      refreshDetailsPanel();
+    });
+    let qTimer;
+    const finQ = panel.querySelector('#finQ');
+    finQ.addEventListener('input', (ev) => {
+      clearTimeout(qTimer);
+      qTimer = setTimeout(() => {
+        detailsState.financeQ = ev.target.value.trim();
+        detailsState.financeOffset = 0;
+        refreshDetailsPanel();
+        const again = document.getElementById('finQ');
+        if (again) {
+          again.focus();
+          const len = again.value.length;
+          again.setSelectionRange(len, len);
+        }
+      }, 250);
+    });
+    bindPager(panel, 'fin', data, (next) => {
+      detailsState.financeOffset = next;
+      refreshDetailsPanel();
+    });
+  }
+
+  function renderInventairesPanel(panel, truckDb) {
+    const list = truckDb.inventaires();
+    if (!detailsState.invId && list.length) detailsState.invId = list[0].id;
+    const selected = list.find((x) => x.id === detailsState.invId) || null;
+    const lines = selected ? truckDb.inventaireLignes(selected.id) : [];
+    const valeur = lines.reduce((s, l) => s + l.valeur, 0);
+
+    panel.innerHTML = `
+      <div class="split-pane">
+        <div class="card side-list">
+          <h3 style="margin:0 0 10px;">Périodes</h3>
+          <div class="side-scroll">
+            ${
+              list
+                .map((inv) => {
+                  const label = `${String(inv.mois).padStart(2, '0')}/${inv.annee} · ${inv.section}`;
+                  return `<button type="button" class="side-item${inv.id === detailsState.invId ? ' active' : ''}" data-inv="${inv.id}">
+                    <strong>${escapeHtml(label)}</strong>
+                    <span class="meta">${inv.enregistre ? 'Enregistré' : 'Brouillon'} · ${escapeHtml(TruckDb.fmtDay(inv.createdMs))}</span>
+                  </button>`;
+                })
+                .join('') || '<p class="sub">Aucun inventaire.</p>'
+            }
+          </div>
+        </div>
+        <div class="card">
+          <div class="toolbar tight">
+            <h3 style="margin:0;">${selected ? escapeHtml(`${String(selected.mois).padStart(2, '0')}/${selected.annee} — ${selected.section}`) : 'Lignes'}</h3>
+            <span class="sub">${lines.length} ligne(s) · valeur HT ${fmtMoney(valeur)}</span>
+          </div>
+          <div class="table-wrap plain">
+            <table class="data-table">
+              <thead>
+                <tr><th>Ingrédient</th><th>Qté</th><th>Unité</th><th>PU HT</th><th>Valeur HT</th></tr>
+              </thead>
+              <tbody>
+                ${
+                  lines
+                    .map(
+                      (l) => `<tr>
+                      <td>${escapeHtml(l.ingredient)}</td>
+                      <td class="num">${l.qty}</td>
+                      <td>${escapeHtml(l.unite || '—')}</td>
+                      <td class="num">${fmtMoney(l.prixHt)}</td>
+                      <td class="num">${fmtMoney(l.valeur)}</td>
+                    </tr>`,
+                    )
+                    .join('') || '<tr><td colspan="5" class="meta">Sélectionne un inventaire.</td></tr>'
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+
+    panel.querySelectorAll('[data-inv]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        detailsState.invId = Number(btn.getAttribute('data-inv'));
+        refreshDetailsPanel();
+      });
+    });
+  }
+
+  function renderHygienePanel(panel, truckDb) {
+    const sub = detailsState.hygSub;
+    panel.innerHTML = `
+      <div class="card">
+        <div class="toolbar tight">
+          <div class="seg">
+            <button type="button" class="seg-btn${sub === 'releves' ? ' active' : ''}" data-hyg="releves">Relevés</button>
+            <button type="button" class="seg-btn${sub === 'frigos' ? ' active' : ''}" data-hyg="frigos">Équipements</button>
+            <button type="button" class="seg-btn${sub === 'etiquettes' ? ' active' : ''}" data-hyg="etiquettes">Étiquettes</button>
+          </div>
+        </div>
+        <div id="hygBody"></div>
+      </div>`;
+
+    panel.querySelectorAll('[data-hyg]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        detailsState.hygSub = btn.getAttribute('data-hyg');
+        detailsState.releveOffset = 0;
+        refreshDetailsPanel();
+      });
+    });
+
+    const body = panel.querySelector('#hygBody');
+    if (sub === 'frigos') {
+      const frigos = truckDb.frigos();
+      body.innerHTML = `
+        <div class="table-wrap plain">
+          <table class="data-table">
+            <thead><tr><th>Nom</th><th>Type</th><th>Min</th><th>Max</th><th>Actif</th><th>Maj</th></tr></thead>
+            <tbody>
+              ${
+                frigos
+                  .map(
+                    (f) => `<tr>
+                    <td>${escapeHtml(f.nom)}</td>
+                    <td>${escapeHtml(f.type)}</td>
+                    <td class="num">${f.min} °C</td>
+                    <td class="num">${f.max} °C</td>
+                    <td>${f.active ? 'Oui' : 'Non'}</td>
+                    <td>${escapeHtml(fmtMs(f.updatedMs))}</td>
+                  </tr>`,
+                  )
+                  .join('') || '<tr><td colspan="6" class="meta">Aucun frigo.</td></tr>'
+              }
+            </tbody>
+          </table>
+        </div>`;
+      return;
+    }
+
+    if (sub === 'etiquettes') {
+      const labels = truckDb.etiquettes();
+      body.innerHTML = `
+        <div class="photo-grid">
+          ${
+            labels
+              .map((l) => {
+                const img = l.thumbUrl || l.fullUrl;
+                return `<a class="photo-card" href="${img || '#'}" target="_blank" rel="noopener">
+                  ${img ? `<img src="${img}" alt="" loading="lazy" />` : '<div class="photo-missing">Pas d’image</div>'}
+                  <div class="photo-meta">
+                    <strong>${escapeHtml(l.category)}</strong>
+                    <span>${escapeHtml(TruckDb.fmtDay(l.ms))}</span>
+                  </div>
+                </a>`;
+              })
+              .join('') || '<p class="sub">Aucune étiquette.</p>'
+          }
+        </div>`;
+      return;
+    }
+
+    // relevés
+    const frigos = truckDb.frigos();
+    const data = truckDb.releves({
+      frigoId: detailsState.releveFrigo,
+      month: detailsState.releveMonth,
+      offset: detailsState.releveOffset,
+    });
+    const frigoOpts = [
+      `<option value="">Tous les frigos</option>`,
+      ...frigos.map(
+        (f) =>
+          `<option value="${f.id}"${String(f.id) === String(detailsState.releveFrigo) ? ' selected' : ''}>${escapeHtml(f.nom)}</option>`,
+      ),
+    ].join('');
+    const monthOpts = [
+      `<option value="">Tous les mois</option>`,
+      ...data.months.map(
+        (m) =>
+          `<option value="${escapeHtml(m)}"${m === detailsState.releveMonth ? ' selected' : ''}>${escapeHtml(m)}</option>`,
+      ),
+    ].join('');
+
+    body.innerHTML = `
+      <div class="toolbar tight">
+        <select id="relFrigo">${frigoOpts}</select>
+        <select id="relMonth">${monthOpts}</select>
+        <span class="sub">${data.totalCount} relevé(s)</span>
       </div>
-    `;
-    showOnly(detailsView);
+      <div class="table-wrap plain">
+        <table class="data-table">
+          <thead><tr><th>Date</th><th>Frigo</th><th>Temp.</th><th>Plage</th><th>Note</th></tr></thead>
+          <tbody>
+            ${
+              data.rows
+                .map(
+                  (r) => `<tr class="${r.horsPlage ? 'row-warn' : ''}">
+                  <td>${escapeHtml(TruckDb.fmtDay(r.ms))}</td>
+                  <td>${escapeHtml(r.frigo)}</td>
+                  <td class="num">${r.temp} °C</td>
+                  <td class="meta">${r.min ?? '—'} → ${r.max ?? '—'} °C</td>
+                  <td>${escapeHtml(r.note || '')}</td>
+                </tr>`,
+                )
+                .join('') || '<tr><td colspan="5" class="meta">Aucun relevé.</td></tr>'
+            }
+          </tbody>
+        </table>
+      </div>
+      ${pagerHtml(data.offset, data.limit, data.totalCount, 'rel')}`;
+
+    body.querySelector('#relFrigo').addEventListener('change', (ev) => {
+      detailsState.releveFrigo = ev.target.value;
+      detailsState.releveOffset = 0;
+      refreshDetailsPanel();
+    });
+    body.querySelector('#relMonth').addEventListener('change', (ev) => {
+      detailsState.releveMonth = ev.target.value;
+      detailsState.releveOffset = 0;
+      refreshDetailsPanel();
+    });
+    bindPager(body, 'rel', data, (next) => {
+      detailsState.releveOffset = next;
+      refreshDetailsPanel();
+    });
+  }
+
+  function pagerHtml(offset, limit, total, prefix) {
+    if (total <= limit) return '';
+    const page = Math.floor(offset / limit) + 1;
+    const pages = Math.ceil(total / limit);
+    return `
+      <div class="pager">
+        <button type="button" class="secondary" id="${prefix}Prev" ${offset <= 0 ? 'disabled' : ''}>← Préc.</button>
+        <span class="sub">Page ${page} / ${pages}</span>
+        <button type="button" class="secondary" id="${prefix}Next" ${offset + limit >= total ? 'disabled' : ''}>Suiv. →</button>
+      </div>`;
+  }
+
+  function bindPager(root, prefix, data, onChange) {
+    const prev = root.querySelector(`#${prefix}Prev`);
+    const next = root.querySelector(`#${prefix}Next`);
+    if (prev)
+      prev.addEventListener('click', () =>
+        onChange(Math.max(0, data.offset - data.limit)),
+      );
+    if (next)
+      next.addEventListener('click', () => onChange(data.offset + data.limit));
   }
 
   async function loadTrucks() {
@@ -351,11 +768,15 @@
     await client.auth.signOut();
     trucks = [];
     selectedId = null;
+    TruckDb.clearAll();
     btnLogout.classList.add('hidden');
     showOnly(loginView);
   });
 
-  btnRefresh.addEventListener('click', () => loadTrucks());
+  btnRefresh.addEventListener('click', () => {
+    TruckDb.clearAll();
+    loadTrucks();
+  });
   hideTests.addEventListener('change', () => renderList());
   btnBack.addEventListener('click', () => {
     selectedId = null;
