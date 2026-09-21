@@ -1,4 +1,7 @@
 (() => {
+  const ZIP_NAME = 'pc_master_latest.zip';
+  const SQLITE_NAME = 'pizza_truck_compta.sqlite';
+  const PAGE = 50;
   const REQUIRED_INV = ['laboratoire', 'camion', 'boissons'];
   const SYNC_ALERT_MS = 72 * 3600 * 1000;
   const INV_DUE_DAY = 15;
