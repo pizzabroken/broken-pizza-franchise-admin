@@ -121,15 +121,60 @@
   }
 
   function syncBadge(updatedAtMs) {
+    const alerts = TruckDb.computeAlerts({ updatedAtMs });
     if (!updatedAtMs) return '<span class="badge mute">Inconnue</span>';
+    if (alerts.syncStale) {
+      return `<span class="badge bad">Sync &gt; 72 h${alerts.syncAgeH != null ? ` (${alerts.syncAgeH} h)` : ''}</span>`;
+    }
     const ageH = (Date.now() - Number(updatedAtMs)) / 3600000;
     if (ageH <= 48) return '<span class="badge ok">Récente</span>';
-    if (ageH <= 24 * 7) return '<span class="badge warn">En retard</span>';
-    return '<span class="badge bad">Ancienne</span>';
+    return '<span class="badge warn">À surveiller</span>';
+  }
+
+  function truckAlerts(manifest, liveInv = null) {
+    return TruckDb.computeAlerts(manifest, liveInv);
+  }
+
+  function alertsHtml(alerts) {
+    const bits = [];
+    if (alerts.syncStale) {
+      bits.push(
+        `<div class="alert-banner bad">Pas de sync depuis plus de 72 h${alerts.syncAgeH != null ? ` (${alerts.syncAgeH} h)` : ''}.</div>`,
+      );
+    }
+    if (alerts.inv.alertMissing) {
+      const miss = (alerts.inv.missing || []).join(', ') || 'sections manquantes';
+      bits.push(
+        `<div class="alert-banner bad">Inventaire ${String(alerts.inv.month).padStart(2, '0')}/${alerts.inv.year} non rentré au 15 — manque : ${escapeHtml(miss)}.</div>`,
+      );
+    } else if (alerts.inv.dueDayReached) {
+      bits.push(
+        `<div class="alert-banner ok">Inventaire ${String(alerts.inv.month).padStart(2, '0')}/${alerts.inv.year} OK (sections requises enregistrées).</div>`,
+      );
+    } else {
+      bits.push(
+        `<div class="alert-banner mute">Inventaire ${String(alerts.inv.month).padStart(2, '0')}/${alerts.inv.year} : échéance le 15 du mois.</div>`,
+      );
+    }
+    return bits.join('');
+  }
+
+  function alertChips(alerts) {
+    const chips = [];
+    if (alerts.syncStale) chips.push('<span class="badge bad">Sync &gt; 72 h</span>');
+    if (alerts.inv.alertMissing) chips.push('<span class="badge bad">Inventaire 15</span>');
+    if (!chips.length) chips.push('<span class="badge ok">OK</span>');
+    return chips.join(' ');
   }
 
   function fs(manifest) {
     return (manifest && manifest.financeStats) || {};
+  }
+
+  function safeFilePart(s) {
+    return String(s || 'camion')
+      .replace(/[^\w\-]+/g, '_')
+      .slice(0, 40);
   }
 
   function showOnly(view) {
@@ -172,7 +217,8 @@
 
   function renderList() {
     const rows = visibleTrucks();
-    dashStatus.textContent = `${rows.length} camion(s) affiché(s) / ${trucks.length} dossier(s).`;
+    const alertCount = rows.filter((t) => truckAlerts(t.manifest).hasAny).length;
+    dashStatus.textContent = `${rows.length} camion(s) · ${alertCount} alerte(s) · ${trucks.length} dossier(s).`;
     truckTableBody.innerHTML = '';
     if (rows.length === 0) {
       truckTableBody.innerHTML =
@@ -183,7 +229,9 @@
       const name = displayNameFor(t.userId, t.manifest);
       const ville = t.manifest?.companyProfile?.ville || '—';
       const stats = fs(t.manifest);
+      const alerts = truckAlerts(t.manifest);
       const tr = document.createElement('tr');
+      if (alerts.hasAny) tr.classList.add('row-alert');
       tr.innerHTML = `
         <td>
           <div class="name">${escapeHtml(name)}</div>
@@ -191,8 +239,8 @@
         </td>
         <td>${escapeHtml(ville)}</td>
         <td>${fmtMoney(stats.recSumMonth)}</td>
-        <td>${fmtMs(t.manifest?.updatedAtMs)}</td>
-        <td>${syncBadge(t.manifest?.updatedAtMs)}</td>
+        <td>${fmtMs(t.manifest?.updatedAtMs)}<div class="meta">${syncBadge(t.manifest?.updatedAtMs)}</div></td>
+        <td>${alertChips(alerts)}</td>
       `;
       tr.addEventListener('click', () => openBilan(t.userId));
       truckTableBody.appendChild(tr);
@@ -219,11 +267,13 @@
     const stats = fs(t.manifest);
     const month = stats.statsMonth || 'mois en cours';
     const year = stats.statsYear || new Date().getFullYear();
+    const alerts = truckAlerts(t.manifest);
     bilanContent.innerHTML = `
       <div class="card" style="margin-bottom:16px;">
         <h2 style="margin:0 0 6px;">${escapeHtml(name)}</h2>
         <p class="sub" style="margin:0;">${escapeHtml(t.manifest?.email || userId)}</p>
       </div>
+      <div class="alerts-stack" style="margin-bottom:16px;">${alertsHtml(alerts)}</div>
       <div class="bilan-grid">
         <div class="card">
           <h3 style="margin:0 0 12px;">Activité</h3>
@@ -296,10 +346,12 @@
       return;
     }
     const t = findTruck(selectedId);
-    if (detailsState.tab === 'synthese') panel.innerHTML = renderSynthese(t, activeTruckDb.counts());
-    else if (detailsState.tab === 'finance') renderFinancePanel(panel, activeTruckDb);
-    else if (detailsState.tab === 'inventaires') renderInventairesPanel(panel, activeTruckDb);
-    else renderHygienePanel(panel, activeTruckDb);
+    const name = displayNameFor(selectedId, t?.manifest);
+    const liveInv = activeTruckDb.inventoryStatus();
+    if (detailsState.tab === 'synthese') panel.innerHTML = renderSynthese(t, activeTruckDb.counts(), liveInv);
+    else if (detailsState.tab === 'finance') renderFinancePanel(panel, activeTruckDb, name);
+    else if (detailsState.tab === 'inventaires') renderInventairesPanel(panel, activeTruckDb, name);
+    else renderHygienePanel(panel, activeTruckDb, name);
   }
 
   async function renderDetailsWithDb(t) {
@@ -307,6 +359,8 @@
     activeTruckDb = truckDb;
     const name = displayNameFor(selectedId, t?.manifest);
     const counts = truckDb.counts();
+    const liveInv = truckDb.inventoryStatus();
+    const alerts = truckAlerts(t?.manifest, liveInv);
     const tabs = [
       ['synthese', 'Synthèse'],
       ['finance', `Finance (${counts.recettes + counts.depenses})`],
@@ -328,6 +382,7 @@
           <span>${counts.etiquettes} étiquettes</span>
         </div>
       </div>
+      <div class="alerts-stack" style="margin-bottom:14px;">${alertsHtml(alerts)}</div>
       <div class="tabs" id="detailsTabs">
         ${tabs
           .map(
@@ -349,13 +404,13 @@
     });
 
     const panel = document.getElementById('detailsPanel');
-    if (detailsState.tab === 'synthese') panel.innerHTML = renderSynthese(t, counts);
-    else if (detailsState.tab === 'finance') renderFinancePanel(panel, truckDb);
-    else if (detailsState.tab === 'inventaires') renderInventairesPanel(panel, truckDb);
-    else renderHygienePanel(panel, truckDb);
+    if (detailsState.tab === 'synthese') panel.innerHTML = renderSynthese(t, counts, liveInv);
+    else if (detailsState.tab === 'finance') renderFinancePanel(panel, truckDb, name);
+    else if (detailsState.tab === 'inventaires') renderInventairesPanel(panel, truckDb, name);
+    else renderHygienePanel(panel, truckDb, name);
   }
 
-  function renderSynthese(t, counts) {
+  function renderSynthese(t, counts, liveInv) {
     const profile = t?.manifest?.companyProfile || {};
     const rows = [];
     for (const key of COMPANY_ORDER) {
@@ -365,6 +420,7 @@
         `<div class="info-row"><span>${escapeHtml(COMPANY_LABELS[key])}</span><strong>${escapeHtml(val)}</strong></div>`,
       );
     }
+    const inv = liveInv || TruckDb.inventoryStatusFromStats(fs(t?.manifest));
     return `
       <div class="bilan-grid">
         <div class="card">
@@ -380,11 +436,12 @@
           <div class="info-row"><span>Relevés</span><strong>${counts.releves}</strong></div>
           <div class="info-row"><span>Étiquettes</span><strong>${counts.etiquettes}</strong></div>
           <div class="info-row"><span>Notes</span><strong>${counts.notes}</strong></div>
+          <div class="info-row"><span>Inv. mois</span><strong>${escapeHtml((inv.recorded || []).join(', ') || 'aucun')} / requis ${(inv.required || []).join(', ')}</strong></div>
         </div>
       </div>`;
   }
 
-  function renderFinancePanel(panel, truckDb) {
+  function renderFinancePanel(panel, truckDb, truckName) {
     const kind = detailsState.financeKind;
     const data =
       kind === 'recette'
@@ -430,6 +487,7 @@
           </div>
           <select id="finMonth">${monthOpts}</select>
           <input id="finQ" type="search" placeholder="Rechercher…" value="${escapeHtml(detailsState.financeQ)}" />
+          <button type="button" class="secondary" id="finExport">Exporter CSV</button>
           <span class="sub">${data.totalCount} ligne(s) · total ${fmtMoney(data.totalAmount)}</span>
         </div>
         <div class="table-wrap plain">
@@ -483,9 +541,37 @@
       detailsState.financeOffset = next;
       refreshDetailsPanel();
     });
+    panel.querySelector('#finExport').addEventListener('click', () => {
+      const all =
+        kind === 'recette'
+          ? truckDb.recettes({
+              month: detailsState.financeMonth,
+              q: detailsState.financeQ,
+              offset: 0,
+              limit: 100000,
+            })
+          : truckDb.depenses({
+              month: detailsState.financeMonth,
+              q: detailsState.financeQ,
+              offset: 0,
+              limit: 100000,
+            });
+      const stamp = new Date().toISOString().slice(0, 10);
+      TruckDb.downloadCsv(
+        `${safeFilePart(truckName)}_${kind}_${stamp}.csv`,
+        ['date', typeLabel.toLowerCase(), 'libelle', 'montant', 'note'],
+        all.rows.map((r) => [
+          TruckDb.fmtDay(r.ms),
+          r.type,
+          r.libelle,
+          String(r.montant).replace('.', ','),
+          r.note,
+        ]),
+      );
+    });
   }
 
-  function renderInventairesPanel(panel, truckDb) {
+  function renderInventairesPanel(panel, truckDb, truckName) {
     const list = truckDb.inventaires();
     if (!detailsState.invId && list.length) detailsState.invId = list[0].id;
     const selected = list.find((x) => x.id === detailsState.invId) || null;
@@ -513,6 +599,7 @@
         <div class="card">
           <div class="toolbar tight">
             <h3 style="margin:0;">${selected ? escapeHtml(`${String(selected.mois).padStart(2, '0')}/${selected.annee} — ${selected.section}`) : 'Lignes'}</h3>
+            <button type="button" class="secondary" id="invExport" ${selected ? '' : 'disabled'}>Exporter CSV</button>
             <span class="sub">${lines.length} ligne(s) · valeur HT ${fmtMoney(valeur)}</span>
           </div>
           <div class="table-wrap plain">
@@ -546,9 +633,26 @@
         refreshDetailsPanel();
       });
     });
+    const exp = panel.querySelector('#invExport');
+    if (exp && selected) {
+      exp.addEventListener('click', () => {
+        const stamp = `${selected.annee}-${String(selected.mois).padStart(2, '0')}_${selected.section}`;
+        TruckDb.downloadCsv(
+          `${safeFilePart(truckName)}_inventaire_${stamp}.csv`,
+          ['ingredient', 'quantite', 'unite', 'prix_ht', 'valeur_ht'],
+          lines.map((l) => [
+            l.ingredient,
+            String(l.qty).replace('.', ','),
+            l.unite || '',
+            String(l.prixHt).replace('.', ','),
+            String(l.valeur).replace('.', ','),
+          ]),
+        );
+      });
+    }
   }
 
-  function renderHygienePanel(panel, truckDb) {
+  function renderHygienePanel(panel, truckDb, truckName) {
     const sub = detailsState.hygSub;
     panel.innerHTML = `
       <div class="card">
@@ -558,6 +662,7 @@
             <button type="button" class="seg-btn${sub === 'frigos' ? ' active' : ''}" data-hyg="frigos">Équipements</button>
             <button type="button" class="seg-btn${sub === 'etiquettes' ? ' active' : ''}" data-hyg="etiquettes">Étiquettes</button>
           </div>
+          <button type="button" class="secondary" id="hygExport">Exporter CSV</button>
         </div>
         <div id="hygBody"></div>
       </div>`;
@@ -571,6 +676,9 @@
     });
 
     const body = panel.querySelector('#hygBody');
+    const stamp = new Date().toISOString().slice(0, 10);
+    const exportBtn = panel.querySelector('#hygExport');
+
     if (sub === 'frigos') {
       const frigos = truckDb.frigos();
       body.innerHTML = `
@@ -595,6 +703,20 @@
             </tbody>
           </table>
         </div>`;
+      exportBtn.addEventListener('click', () => {
+        TruckDb.downloadCsv(
+          `${safeFilePart(truckName)}_frigos_${stamp}.csv`,
+          ['nom', 'type', 'min_c', 'max_c', 'actif', 'maj'],
+          frigos.map((f) => [
+            f.nom,
+            f.type,
+            f.min,
+            f.max,
+            f.active ? 'oui' : 'non',
+            fmtMs(f.updatedMs),
+          ]),
+        );
+      });
       return;
     }
 
@@ -617,6 +739,13 @@
               .join('') || '<p class="sub">Aucune étiquette.</p>'
           }
         </div>`;
+      exportBtn.addEventListener('click', () => {
+        TruckDb.downloadCsv(
+          `${safeFilePart(truckName)}_etiquettes_${stamp}.csv`,
+          ['date', 'categorie'],
+          labels.map((l) => [TruckDb.fmtDay(l.ms), l.category]),
+        );
+      });
       return;
     }
 
@@ -683,6 +812,27 @@
     bindPager(body, 'rel', data, (next) => {
       detailsState.releveOffset = next;
       refreshDetailsPanel();
+    });
+    exportBtn.addEventListener('click', () => {
+      const all = truckDb.releves({
+        frigoId: detailsState.releveFrigo,
+        month: detailsState.releveMonth,
+        offset: 0,
+        limit: 100000,
+      });
+      TruckDb.downloadCsv(
+        `${safeFilePart(truckName)}_releves_${stamp}.csv`,
+        ['date', 'frigo', 'temperature_c', 'min_c', 'max_c', 'hors_plage', 'note'],
+        all.rows.map((r) => [
+          TruckDb.fmtDay(r.ms),
+          r.frigo,
+          String(r.temp).replace('.', ','),
+          r.min,
+          r.max,
+          r.horsPlage ? 'oui' : 'non',
+          r.note,
+        ]),
+      );
     });
   }
 

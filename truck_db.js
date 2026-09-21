@@ -1,7 +1,76 @@
 (() => {
-  const ZIP_NAME = 'pc_master_latest.zip';
-  const SQLITE_NAME = 'pizza_truck_compta.sqlite';
-  const PAGE = 50;
+  const REQUIRED_INV = ['laboratoire', 'camion', 'boissons'];
+  const SYNC_ALERT_MS = 72 * 3600 * 1000;
+  const INV_DUE_DAY = 15;
+
+  function inventoryStatusFromDb(db, year, month) {
+    const rows = queryAll(
+      db,
+      `SELECT section_inventaire, est_enregistre FROM monthly_inventories WHERE annee = ? AND mois = ?`,
+      [year, month],
+    );
+    const recorded = [
+      ...new Set(
+        rows
+          .filter((r) => Number(r.est_enregistre) === 1)
+          .map((r) => String(r.section_inventaire || '').trim())
+          .filter(Boolean),
+      ),
+    ].sort();
+    const missing = REQUIRED_INV.filter((s) => !recorded.includes(s));
+    const dueDayReached = new Date().getDate() >= INV_DUE_DAY;
+    return {
+      year,
+      month,
+      required: REQUIRED_INV,
+      recorded,
+      missing,
+      dueDayReached,
+      alertMissing: dueDayReached && missing.length > 0,
+    };
+  }
+
+  function inventoryStatusFromStats(stats) {
+    const now = new Date();
+    const year = Number(stats?.invAlertYear) || now.getFullYear();
+    const month = Number(stats?.invAlertMonth) || now.getMonth() + 1;
+    if (stats && typeof stats.invAlertMissing === 'boolean') {
+      return {
+        year,
+        month,
+        required: stats.invRequiredSections || REQUIRED_INV,
+        recorded: stats.invRecordedSections || [],
+        missing: stats.invMissingSections || [],
+        dueDayReached: !!stats.invDueDayReached,
+        alertMissing: !!stats.invAlertMissing,
+      };
+    }
+    return {
+      year,
+      month,
+      required: REQUIRED_INV,
+      recorded: [],
+      missing: REQUIRED_INV,
+      dueDayReached: now.getDate() >= INV_DUE_DAY,
+      alertMissing: now.getDate() >= INV_DUE_DAY,
+    };
+  }
+
+  function computeAlerts(manifest, liveInvStatus = null) {
+    const updatedAtMs = Number(manifest?.updatedAtMs) || 0;
+    const syncStale =
+      !updatedAtMs || Date.now() - updatedAtMs > SYNC_ALERT_MS;
+    const syncAgeH = updatedAtMs
+      ? Math.floor((Date.now() - updatedAtMs) / 3600000)
+      : null;
+    const inv = liveInvStatus || inventoryStatusFromStats(manifest?.financeStats);
+    return {
+      syncStale,
+      syncAgeH,
+      inv,
+      hasAny: syncStale || inv.alertMissing,
+    };
+  }
 
   const TYPE_ENCAISSEMENT = {
     0: 'CB',
@@ -325,6 +394,37 @@
         };
       });
     }
+
+    inventoryStatus(year, month) {
+      const now = new Date();
+      return inventoryStatusFromDb(
+        this.db,
+        year || now.getFullYear(),
+        month || now.getMonth() + 1,
+      );
+    }
+  }
+
+  function csvEscape(v) {
+    const s = v == null ? '' : String(v);
+    if (/[;"\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  }
+
+  function downloadCsv(filename, headers, rows) {
+    const lines = [
+      headers.join(';'),
+      ...rows.map((row) => row.map(csvEscape).join(';')),
+    ];
+    const blob = new Blob(['\uFEFF' + lines.join('\n')], {
+      type: 'text/csv;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
   /**
@@ -395,5 +495,11 @@
     TYPE_ENCAISSEMENT,
     CAT_DEPENSE,
     PAGE,
+    SYNC_ALERT_MS,
+    INV_DUE_DAY,
+    REQUIRED_INV,
+    computeAlerts,
+    inventoryStatusFromStats,
+    downloadCsv,
   };
 })();
