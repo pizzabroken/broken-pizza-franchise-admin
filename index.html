@@ -7,11 +7,11 @@
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <div class="wrap">
+  <div class="wrap desktop">
     <header>
       <div>
         <h1>Broken Pizza Gestion</h1>
-        <p class="sub">Tableau de bord franchise (lecture sync cloud)</p>
+        <p class="sub">Tableau de bord franchise — format PC</p>
       </div>
       <button id="btnLogout" class="secondary hidden" type="button">Déconnexion</button>
     </header>
@@ -30,13 +30,45 @@
       <p id="loginErr" class="err"></p>
     </section>
 
-    <section id="dashView" class="hidden">
-      <div class="row" style="margin-bottom: 14px;">
+    <section id="listView" class="hidden">
+      <div class="toolbar">
         <button id="btnRefresh" type="button">Actualiser</button>
-        <p id="dashStatus" class="sub" style="margin: 8px 0 0;"></p>
+        <label class="chk">
+          <input id="hideTests" type="checkbox" checked />
+          Masquer les comptes test
+        </label>
+        <p id="dashStatus" class="sub"></p>
       </div>
       <p id="dashErr" class="err"></p>
-      <div id="truckGrid" class="grid"></div>
+      <div class="table-wrap card">
+        <table class="truck-table" id="truckTable">
+          <thead>
+            <tr>
+              <th>Camion</th>
+              <th>Ville</th>
+              <th>CA mois</th>
+              <th>Dernière sync</th>
+              <th>Sync</th>
+            </tr>
+          </thead>
+          <tbody id="truckTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="bilanView" class="hidden">
+      <div class="toolbar">
+        <button id="btnBack" class="secondary" type="button">← Retour à la liste</button>
+        <button id="btnDetails" type="button">Détails</button>
+      </div>
+      <div id="bilanContent"></div>
+    </section>
+
+    <section id="detailsView" class="hidden">
+      <div class="toolbar">
+        <button id="btnBackBilan" class="secondary" type="button">← Retour au bilan</button>
+      </div>
+      <div id="detailsContent"></div>
     </section>
   </div>
 
