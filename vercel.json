@@ -1,0 +1,6 @@
+{
+  "version": 2,
+  "name": "broken-pizza-franchise-admin",
+  "cleanUrls": true,
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}

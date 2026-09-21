@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Broken Pizza — Admin franchise</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Broken Pizza Gestion</h1>
+        <p class="sub">Tableau de bord franchise (lecture sync cloud)</p>
+      </div>
+      <button id="btnLogout" class="secondary hidden" type="button">Déconnexion</button>
+    </header>
+
+    <section id="loginView" class="card login-card">
+      <p class="sub">Connexion admin (compte autorisé uniquement).</p>
+      <label>E-mail
+        <input id="email" type="email" autocomplete="username" value="pizzabroken38@gmail.com" />
+      </label>
+      <label>Mot de passe
+        <input id="password" type="password" autocomplete="current-password" />
+      </label>
+      <div class="row">
+        <button id="btnLogin" type="button">Se connecter</button>
+      </div>
+      <p id="loginErr" class="err"></p>
+    </section>
+
+    <section id="dashView" class="hidden">
+      <div class="row" style="margin-bottom: 14px;">
+        <button id="btnRefresh" type="button">Actualiser</button>
+        <p id="dashStatus" class="sub" style="margin: 8px 0 0;"></p>
+      </div>
+      <p id="dashErr" class="err"></p>
+      <div id="truckGrid" class="grid"></div>
+    </section>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.min.js"></script>
+  <script src="./config.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+Broken Pizza — Admin franchise (Vercel gratuit)
+==============================================
+
+1) Créer un compte Vercel (gratuit) avec « Continue with GitHub »
+   https://vercel.com/signup
+
+2) Sur GitHub : nouveau dépôt (ex. broken-pizza-franchise-admin),
+   uploader UNIQUEMENT le contenu du dossier franchise_admin/
+   (index.html, app.js, config.js, styles.css, vercel.json)
+
+3) Vercel → Add New Project → importer ce dépôt → Deploy
+
+4) Supabase → Authentication → URL Configuration → Redirect URLs
+   ajouter : https://TON-PROJET.vercel.app/**
+
+5) Ouvrir l’URL Vercel → login pizzabroken38@gmail.com + mot de passe app
