@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Politique de confidentialité — Broken Pizza Gestion</title>
+  <style>
+    :root {
+      --bg: #1a1410;
+      --card: #2a211c;
+      --text: #f5efe8;
+      --muted: #c4b8ae;
+      --accent: #e85d04;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: linear-gradient(160deg, #1a1410 0%, #2c1810 50%, #1a1410 100%);
+      color: var(--text);
+      line-height: 1.55;
+      min-height: 100vh;
+    }
+    main {
+      max-width: 42rem;
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 4rem;
+    }
+    h1 { font-size: 1.65rem; margin: 0 0 0.35rem; }
+    h2 { font-size: 1.1rem; margin: 1.75rem 0 0.5rem; color: var(--accent); }
+    .sub { color: var(--muted); margin: 0 0 1.5rem; font-size: 0.95rem; }
+    p, li { color: var(--text); }
+    ul { padding-left: 1.2rem; }
+    a { color: #ff9f1c; }
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 1.25rem 1.35rem;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Politique de confidentialité</h1>
+    <p class="sub">Broken Pizza Gestion — dernière mise à jour : septembre 2026</p>
+    <div class="card">
+      <p>
+        Cette application mobile (« Broken Pizza Gestion ») est destinée aux opérateurs
+        de food-trucks de la franchise Broken Pizza. Elle permet la gestion opérationnelle
+        (produits, inventaires, recettes, hygiène, finance) hors ligne, avec synchronisation
+        cloud optionnelle.
+      </p>
+
+      <h2>1. Responsable</h2>
+      <p>
+        Broken Pizza / éditeur de l’application. Contact :
+        <a href="mailto:pizzabroken38@gmail.com">pizzabroken38@gmail.com</a>
+      </p>
+
+      <h2>2. Données traitées</h2>
+      <ul>
+        <li>Identifiants de compte (e-mail, authentification via Supabase).</li>
+        <li>Données métier saisies dans l’app : stocks, inventaires, recettes, contrôles d’hygiène, écritures financières.</li>
+        <li>Photos d’étiquettes / preuves liées aux contrôles (stockées localement et, si sync activée, dans le stockage cloud du compte).</li>
+        <li>Métadonnées de synchronisation (horodatages, manifeste de version des données).</li>
+      </ul>
+      <p>L’application ne cible pas le grand public ; elle est utilisée dans un cadre professionnel franchise.</p>
+
+      <h2>3. Finalités</h2>
+      <ul>
+        <li>Fournir les fonctions de gestion du camion.</li>
+        <li>Sauvegarder et synchroniser les données entre appareils via le compte utilisateur.</li>
+        <li>Permettre un suivi franchise ( consoles d’administration autorisées ).</li>
+      </ul>
+
+      <h2>4. Base légale / conservation</h2>
+      <p>
+        Traitement nécessaire à l’exécution du service demandé par l’utilisateur (compte
+        professionnel). Les données sont conservées tant que le compte est actif et que
+        les sauvegardes cloud / locales existent ; suppression sur demande ou fermeture de compte.
+      </p>
+
+      <h2>5. Hébergement et sous-traitants</h2>
+      <p>
+        Authentification et stockage cloud : <strong>Supabase</strong> (infrastructure cloud).
+        Distribution de l’application : <strong>Google Play</strong>.
+      </p>
+
+      <h2>6. Partage</h2>
+      <p>
+        Les données d’un compte camion ne sont pas vendues. Elles peuvent être consultées
+        par l’administration franchise autorisée dans le cadre du suivi opérationnel.
+        Google peut traiter des données techniques liées à l’installation via Play Store
+        selon sa propre politique.
+      </p>
+
+      <h2>7. Sécurité</h2>
+      <p>
+        Accès par compte authentifié. Données locales sur l’appareil ; sync chiffrée en transit (HTTPS).
+        Une désinstallation sans export / sync peut entraîner une perte de données locales.
+      </p>
+
+      <h2>8. Droits</h2>
+      <p>
+        Pour accéder, rectifier ou supprimer les données de votre compte, contactez
+        <a href="mailto:pizzabroken38@gmail.com">pizzabroken38@gmail.com</a>.
+      </p>
+
+      <h2>9. Permissions Android</h2>
+      <ul>
+        <li>Stockage / photos : import et capture d’images d’étiquettes.</li>
+        <li>Microphone (si activé) : fonctions vocales éventuelles de saisie.</li>
+      </ul>
+
+      <h2>10. Modifications</h2>
+      <p>
+        Cette page peut être mise à jour ; l’URL publique reste celle utilisée dans la fiche Play Store.
+      </p>
+    </div>
+  </main>
+</body>
+</html>
