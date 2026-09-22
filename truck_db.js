@@ -124,16 +124,30 @@
     if (raw == null) return 0;
     let n = Number(raw);
     if (!Number.isFinite(n) || n <= 0) return 0;
-    // Drift DateTime = seconds ; imports parfois en ms
-    while (n > 1e13) n = Math.floor(n / 1000);
+    // Drift DateTime = seconds ; imports parfois en ms ; parfois ms lus comme s (année ~58xxx)
+    let guard = 0;
+    while (n > 1e13 && guard < 6) {
+      n = Math.floor(n / 1000);
+      guard += 1;
+    }
     if (n < 1e11) n *= 1000;
+    // Si encore une date absurde (ex. année 58xxx), redescendre.
+    guard = 0;
+    while (guard < 6) {
+      const y = new Date(n).getFullYear();
+      if (y >= 1990 && y <= 2100) break;
+      n = Math.floor(n / 1000);
+      guard += 1;
+    }
     return n;
   }
 
   function fmtMs(ms) {
     if (!ms) return '—';
+    const n = toMs(ms);
+    if (!n) return '—';
     try {
-      return new Date(ms).toLocaleString('fr-FR');
+      return new Date(n).toLocaleString('fr-FR');
     } catch (_) {
       return String(ms);
     }
@@ -141,8 +155,10 @@
 
   function fmtDay(ms) {
     if (!ms) return '—';
+    const n = toMs(ms);
+    if (!n) return '—';
     try {
-      return new Date(ms).toLocaleDateString('fr-FR');
+      return new Date(n).toLocaleDateString('fr-FR');
     } catch (_) {
       return String(ms);
     }
