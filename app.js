@@ -259,27 +259,69 @@
     return `${escapeHtml(kind)} — ${escapeHtml(le.label || '')}${amount}<br/><span class="meta">${fmtMs(le.ms || stats.lastEntryMs)}</span>`;
   }
 
-  function openBilan(userId) {
-    const t = findTruck(userId);
-    if (!t) return;
+  async function downloadManifest(userId) {
+    const session = (await client.auth.getSession()).data.session;
+    const token = session?.access_token;
+    if (!token) throw new Error('Session expirée');
+    const url =
+      `${cfg.supabaseUrl}/storage/v1/object/${cfg.syncBucket}/` +
+      `${encodeURIComponent(userId)}/sync_manifest.json?t=${Date.now()}`;
+    const resp = await fetch(url, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        apikey: cfg.supabaseAnonKey,
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!resp.ok) {
+      throw new Error(`Manifeste HTTP ${resp.status}`);
+    }
+    return JSON.parse(await resp.text());
+  }
+
+  async function openBilan(userId) {
     selectedId = userId;
-    const name = displayNameFor(userId, t.manifest);
-    const stats = fs(t.manifest);
+    showOnly(bilanView);
+    bilanContent.innerHTML = `<div class="card"><p class="sub">Chargement du bilan…</p></div>`;
+    try {
+      const manifest = await downloadManifest(userId);
+      const idx = trucks.findIndex((t) => t.userId === userId);
+      if (idx >= 0) trucks[idx].manifest = manifest;
+      else trucks.push({ userId, manifest });
+      renderBilanContent(userId, manifest);
+    } catch (e) {
+      const t = findTruck(userId);
+      if (t?.manifest) {
+        renderBilanContent(userId, t.manifest);
+        bilanContent.insertAdjacentHTML(
+          'afterbegin',
+          `<p class="err">Manifeste cloud non rafraîchi : ${escapeHtml((e && e.message) || String(e))}</p>`,
+        );
+      } else {
+        bilanContent.innerHTML = `<div class="card"><p class="err">${escapeHtml((e && e.message) || String(e))}</p></div>`;
+      }
+    }
+  }
+
+  function renderBilanContent(userId, manifest) {
+    const name = displayNameFor(userId, manifest);
+    const stats = fs(manifest);
     const month = stats.statsMonth || 'mois en cours';
     const year = stats.statsYear || new Date().getFullYear();
-    const alerts = truckAlerts(t.manifest);
+    const alerts = truckAlerts(manifest);
     bilanContent.innerHTML = `
       <div class="card" style="margin-bottom:16px;">
         <h2 style="margin:0 0 6px;">${escapeHtml(name)}</h2>
-        <p class="sub" style="margin:0;">${escapeHtml(t.manifest?.email || userId)}</p>
+        <p class="sub" style="margin:0;">${escapeHtml(manifest?.email || userId)}</p>
       </div>
       <div class="alerts-stack" style="margin-bottom:16px;">${alertsHtml(alerts)}</div>
       <div class="bilan-grid">
         <div class="card">
           <h3 style="margin:0 0 12px;">Activité</h3>
-          <div class="info-row"><span>Dernière sync</span><strong>${fmtMs(t.manifest?.updatedAtMs)} <span class="meta">(${escapeHtml(t.manifest?.source || '—')})</span></strong></div>
+          <div class="info-row"><span>Dernière sync</span><strong>${fmtMs(manifest?.updatedAtMs)} <span class="meta">(${escapeHtml(manifest?.source || '—')})</span></strong></div>
           <div class="info-row"><span>Dernière saisie</span><strong>${lastEntryHtml(stats)}</strong></div>
-          <div class="info-row"><span>État sync</span><strong>${syncBadge(t.manifest?.updatedAtMs)}</strong></div>
+          <div class="info-row"><span>État sync</span><strong>${syncBadge(manifest?.updatedAtMs)}</strong></div>
         </div>
         <div class="card">
           <h3 style="margin:0 0 12px;">Finance</h3>
@@ -304,7 +346,6 @@
         </div>
       </div>
     `;
-    showOnly(bilanView);
   }
 
   async function openDetails() {
@@ -877,11 +918,7 @@
 
     for (const userId of truckIds) {
       try {
-        const { data: blob, error: dlErr } = await client.storage
-          .from(cfg.syncBucket)
-          .download(`${userId}/sync_manifest.json`);
-        if (dlErr) throw dlErr;
-        const manifest = JSON.parse(await blob.text());
+        const manifest = await downloadManifest(userId);
         trucks.push({ userId, manifest });
       } catch (e) {
         trucks.push({ userId, manifest: null });
